@@ -10,6 +10,9 @@ from models import ResponseSignal
 import logging
 from .schemes.data import ProcessResquest
 
+from models.ProjectModel import ProjectModel
+from models.db_schemes import DataChunk
+from models.ChunkModel import ChunkModel
 
 logger = logging.getLogger("uvicorn.error")
 data_router = APIRouter(prefix="/api/v1/data", tags=["apiv1", "data"])
@@ -17,9 +20,15 @@ data_router = APIRouter(prefix="/api/v1/data", tags=["apiv1", "data"])
 
 @data_router.post("/upload/{project_id}")
 async def upload_data(
-    project_id: str, file: UploadFile, app_settings: Settings = Depends(get_settings)
+    request: Request,
+    project_id: str,
+    file: UploadFile,
+    app_settings: Settings = Depends(get_settings),
 ):
+
     data_controller = DataController()
+    project_model = ProjectModel(db_client=request.app.db_client)
+    project = await project_model.get_project_or_create_one(project_id=project_id)
     # validate the file properties
     is_valid, signal = data_controller.validate_uploaded_file(file=file)
     # return {"is_valid": is_valid, "response signal": signal}
@@ -46,15 +55,28 @@ async def upload_data(
         )
 
     return JSONResponse(
-        content={"signal": ResponseSignal.FILE_UPLOAD_SUCCESS.value, "file_id": file_id}
+        content={
+            "signal": ResponseSignal.FILE_UPLOAD_SUCCESS.value,
+            "file_id": file_id,
+            "pro_id": str(project.id),
+        }
     )
 
 
 @data_router.post("/process/{project_id}")
-async def process_endpoint(project_id: str, process_request: ProcessResquest):
+async def process_endpoint(
+    request: Request, project_id: str, process_request: ProcessResquest
+):
     file_id = process_request.file_id
     chunk_size = process_request.chunk_size
     overlap_size = process_request.overlap_size
+
+    do_reset = process_request.do_reset
+    project_model = ProjectModel(db_client=request.app.db_client)
+
+    project = await project_model.get_project_or_create_one(project_id=project_id)
+
+    chunk_model = ChunkModel(db_client=request.app.db_client)
 
     process_controller = ProcessController(project_id=project_id)
     file_content = process_controller.get_file_content(file_id=file_id)
@@ -69,4 +91,23 @@ async def process_endpoint(project_id: str, process_request: ProcessResquest):
             status_code=status.HTTP_400_BAD_REQUEST,
             content={"signal": ResponseSignal.PROCESSING_FAILED.value},
         )
-    return file_chunks
+    file_cuknks_records = [
+        DataChunk(
+            chunk_text=chunk.page_content,
+            chunk_metadata=chunk.metadata,
+            chunk_order=i + 1,
+            chunk_project_id=project.id,
+        )
+        for i, chunk in enumerate(file_chunks)
+    ]
+
+    if do_reset == 1:
+        _ = await chunk_model.delete_chunks_by_project_id(project_id=project_id)
+
+    no_recordes = await chunk_model.insert_many_chunks(chunks=file_cuknks_records)
+    return JSONResponse(
+        content={
+            "signal": ResponseSignal.PROCESSING_SUCCESS.value,
+            "inserted_chunks": no_recordes,
+        },
+    )
