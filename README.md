@@ -1,7 +1,7 @@
 # mini-rag
 
-This is a minimal implementation of the RAG model for question answering.
-
+This is a minimal implementation of the RAG model, iam learning and following this [tutorial ](https://www.youtube.com/watch?v=Vv6e2Rb1Q6w&list=PLvLvlVqNQGHCUR2p0b8a0QpVjDUg50wQj&ab_channel=AbuBakrSoliman).
+Trying to understand the concepts , goes deeper and learn more.. 
 
 
 
